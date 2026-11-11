@@ -211,3 +211,6 @@ dag*.dot
 # /results/
 /results/scratch/
 /results/tmp/
+
+.venv_aigcts/
+llm_vep/data/
