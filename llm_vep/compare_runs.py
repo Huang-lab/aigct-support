@@ -106,9 +106,7 @@ def pairwise_metrics(
     deltas = [abs(a - b) for a, b in zip(vals_a, vals_b)]
     within = sum(1 for d in deltas if d <= tolerance) / len(deltas)
     minus_one_count = sum(
-        1
-        for k in shared
-        if scores_a[k] == -1.0 or scores_b[k] == -1.0
+        1 for k in shared if scores_a[k] == -1.0 or scores_b[k] == -1.0
     )
 
     return {
