@@ -492,6 +492,22 @@ def parse_score_from_response(response_text: str) -> float:
     return parse_score_and_rationale(response_text)[0]
 
 
+NO_SCORE = -1.0  # what a reply that carries no usable score is recorded as
+
+
+def _checked_score(value: Any) -> float:
+    """Return `value` as a float in [0, 1]; raise ValueError for anything else.
+
+    A JSON boolean is not a score, and NaN fails the range test.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"Score is a boolean, not a number: {value!r}")
+    score = float(value)
+    if not 0.0 <= score <= 1.0:
+        raise ValueError(f"Scored value is outside the normalized range: {score}")
+    return score
+
+
 def parse_score_and_rationale(response_text: str) -> tuple[float, str]:
     cleaned = response_text.strip()
     if cleaned.startswith("```"):
@@ -503,38 +519,25 @@ def parse_score_and_rationale(response_text: str) -> tuple[float, str]:
     except json.JSONDecodeError:
         parsed = None
 
-    score_found = True
     if isinstance(parsed, dict):
         score_value = parsed.get("score")
         rationale = str(parsed.get("rationale", "")).strip()
         if score_value is None:
-            score_value = -1.0
-            score_found = False
-        score = float(score_value)
-        if score_found and not 0.0 <= score <= 1.0:
-            raise ValueError(f"Scored value is outside the normalized range: {score}")
-        return score, rationale
+            return NO_SCORE, rationale
+        return _checked_score(score_value), rationale
 
+    # Not a JSON object. A score is taken only from a complete `"score": <number>`
+    # pair, or from a reply that is nothing but a number. A stray 0 or 1 in prose
+    # ("on a scale from 0 to 1", "variant 1"), a number cut off by the token limit
+    # (`{"score": 0.`) or a number in a reasoning trace is not a score.
     match = re.search(
-        r'"score"\s*:\s*(\d+(?:\.\d+)?)',
+        r'"score"\s*:\s*(\d+(?:\.\d+)?)(?=\s*[,}\]])',
         cleaned,
         flags=re.IGNORECASE,
     )
-    if match:
-        score = float(match.group(1))
-    else:
-        number_match = re.search(
-            r"(?<![\w.])(?:0|1)(?:\.\d+)?(?![\w.])",
-            cleaned,
-        )
-        if number_match is None:
-            score = -1.0
-            score_found = False
-        else:
-            score = float(number_match.group(0))
-
-    if score_found and not 0.0 <= score <= 1.0:
-        raise ValueError(f"Scored value is outside the normalized range: {score}")
+    if match is None:
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)", cleaned)
+    score = _checked_score(match.group(1)) if match else NO_SCORE
 
     rationale_match = re.search(
         r'"rationale"\s*:\s*"((?:\\.|[^"\\])*)"',
@@ -605,9 +608,9 @@ def parse_batch_results(response_text: str) -> dict[int, tuple[float, str]]:
             if score_value is None:
                 raise ValueError(f"Missing score in batch item: {item!r}")
             rationale = str(item.get("rationale", "")).strip()
-            batch_results[int(row_id)] = (float(score_value), rationale)
+            batch_results[int(row_id)] = (_checked_score(score_value), rationale)
         else:
-            batch_results[idx] = (float(item), "")
+            batch_results[idx] = (_checked_score(item), "")
 
     return batch_results
 
